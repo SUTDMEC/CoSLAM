@@ -116,6 +116,11 @@ void* _parallelReadNextFrame(void* param) {
 	CoSLAM::ptr->slam[camId].grabReadFrame();
 	return 0;
 }
+
+bool CoSLAM::tryGrabReadFrame(){
+    //TODO
+}
+
 void CoSLAM::grabReadFrame() {
 	TimeMeasurer tm;
 	tm.tic();
@@ -363,11 +368,14 @@ bool CoSLAM::interCamPoseUpdate() {
 
 	return true;
 }
+
+bool allbad = true;    //if no static points on all cameras
 void CoSLAM::poseUpdate() {
 	TimeMeasurer tm;
 	tm.tic();
 	enterBACriticalSection();
 
+    allbad = true;  //assume there are no good camera, find out in pose update
 	if (curFrame >= m_lastFrmGroupMerge && curFrame < m_lastFrmGroupMerge + 60)
 		parallelPoseUpdate(true);
 	else
@@ -377,14 +385,23 @@ void CoSLAM::poseUpdate() {
 	m_tmPoseUpdate = tm.toc();
 
 	tm.tic();
+    //std::cout << "mapStateUpdate" << std::endl;
 	enterBACriticalSection();
 	mapStateUpdate();
 	leaveBACriticalSection();
 
-	enterBACriticalSection();
-	mapPointsClassify(12.0);
-	leaveBACriticalSection();
+//    if(!allbad){
+    //std::cout << "mapPointsClassify" << std::endl;
+    //comment this out for static scenes
+    enterBACriticalSection();
+    //std::cout << "enter BA senction:" << std::endl;
+    //mapPointsClassify(12.0);
+    mapPointsClassifyNoDynamic(12.0);
+    //std::cout << "leave BA senction:" << std::endl;
+    leaveBACriticalSection();
+//    }
 	m_tmMapClassify = tm.toc();
+    //std::cout << "pose update finished!" << std::endl;
 }
 
 void* _parallelPoseUpdate(void* param) {
@@ -397,14 +414,16 @@ void* _parallelPoseUpdate(void* param) {
 }
 void CoSLAM::parallelPoseUpdate(bool largeErr) {
 	if (numCams == 1) {
-		slam[0].poseUpdate3D(largeErr);
-		slam[0].detectDynamicFeaturePoints(20, 5, 3, Const::MAX_EPI_ERR);
+        if( -1 != slam[0].poseUpdate3D(largeErr))
+            allbad = false;
+        //slam[0].detectDynamicFeaturePoints(20, 5, 3, Const::MAX_EPI_ERR);
 		return;
 	}
 	for (int i = 0; i < numCams; i++) {
-		slam[i].poseUpdate3D(largeErr);
-		slam[i].detectDynamicFeaturePoints(20, 5, 3,
-				largeErr ? Const::MAX_EPI_ERR * 5 : Const::MAX_EPI_ERR);
+        if(-1 != slam[i].poseUpdate3D(largeErr))
+            allbad = false;
+//		slam[i].detectDynamicFeaturePoints(20, 5, 3,
+//				largeErr ? Const::MAX_EPI_ERR * 5 : Const::MAX_EPI_ERR);
 	}
 
 #ifdef USE_OPENMP
@@ -512,6 +531,120 @@ void CoSLAM::mapPointsClassify(double pixelVar) {
 		}
 	}
 }
+
+
+void CoSLAM::mapPointsClassifyNoDynamic(double pixelVar) {
+    //std::cout << "enter mapClass:" << std::endl;
+    //std::cout << &curMapPts << std::endl;
+
+    //if(allbad)
+    //    curMapPts.clearWithoutRelease();
+
+    //std::cout << "num of mappts:" << curMapPts.getNum();
+    MapPoint* pCurMapHead = curMapPts.getHead();
+    //if (!pCurMapHead)
+    //    repErr("no map point is found");
+
+
+    const int FRAME_NUM_FOR_NEWPOINT = 30;
+    const int FRAME_NUM_FOR_DONTMOVE = 50;
+    const int NUM_FRAME_CHECK_STATIC = 60;
+
+    int numFalse = 0;
+    int k = 0;
+    for (MapPoint* p = pCurMapHead; p; p = p->next) {
+        k ++ ;
+        std::cout << "k:" << k << std::endl;
+        if (p->isUncertain() || p->isLocalDynamic()) {
+            //check if the map point is a false point or a dynamic point
+            if (p->numVisCam == 1) {
+                p->setFalse();
+                numFalse++;
+                continue;
+            }
+            double M[3], cov[9];
+            //check if the map point (with either 'uncertain' or 'dynamic' flag) is a false map point
+            //triangulateMultiView(numViews, Rs, Ts, nms, M, 0);
+            if (p->isUncertain()) {
+                if (p->bNewPt) {
+                    //dynamic or static
+                    bool isStatic = isStaticPoint(numCams, p, pixelVar, M, cov,
+                            NUM_FRAME_CHECK_STATIC);
+                    if (isStatic) {
+                        if (p->lastFrame - p->firstFrame
+                                > FRAME_NUM_FOR_NEWPOINT) {
+                            p->setLocalStatic();
+                            p->bNewPt = false;
+                            p->updatePosition(M, cov);
+                        }
+                        //continue; - keep checking
+                    } else {
+                        //simple treat the dynamic points as outliers
+                        p->setFalse();
+//                        if (isDynamicPoint(numCams, p, pixelVar, M, cov)) {
+//                            p->setLocalDynamic();
+//                            p->updatePosition(M, cov);
+//                            p->bNewPt = false;
+//                        } else {
+//                            p->setFalse();
+//                        }
+                    }
+                } else {
+                    //dynamic or false
+                    if (isDynamicPoint(numCams, p, pixelVar, M, cov)) {
+//                        p->setLocalDynamic();
+//                        p->updatePosition(M, cov);
+                        p->setFalse();
+                    } else {
+                        int outlierViewId = isStaticRemovable(numCams, p,
+                                pixelVar, M, cov, NUM_FRAME_CHECK_STATIC);
+                        if (outlierViewId >= 0) {
+                            FeaturePoint* fp = p->pFeatures[outlierViewId];
+                            fp->mpt = 0;
+                            p->pFeatures[outlierViewId] = 0;
+                            p->numVisCam--;
+                            p->setLocalStatic();
+                            p->updatePosition(M, cov);
+                        } else {
+                            p->setFalse();
+                        }
+                    }
+                }
+            } else if (p->isLocalDynamic()) {
+                //can return to static or be a false point
+                if (isDynamicPoint(numCams, p, pixelVar, M, cov)) {
+                    if (isLittleMove(numCams, p, pixelVar, M, cov)) {
+                        p->staticFrameNum++;
+                        if (p->staticFrameNum > FRAME_NUM_FOR_DONTMOVE) {
+                            double M0[3], cov0[9];
+                            if (isStaticPoint(numCams, p, pixelVar, M0, cov0,
+                                    NUM_FRAME_CHECK_STATIC)) {
+                                //go back to static points
+                                p->setLocalStatic();
+                                for (int i = 0; i < numCams; i++) {
+                                    if (p->pFeatures[i])
+                                        p->pFeatures[i]->type =
+                                                TYPE_FEATPOINT_STATIC;
+                                }
+                                p->updatePosition(M0, cov0);
+                            } else {
+                                p->staticFrameNum = 0;
+                                p->updatePosition(M, cov);
+                            }
+                        } else
+                            p->updatePosition(M, cov);
+                    } else {
+                        p->staticFrameNum = 0;
+                        p->updatePosition(M, cov);
+                    }
+                    p->updatePosition(M, cov);
+                } else
+                    p->setFalse();
+            }
+        }
+    }
+}
+
 int CoSLAM::searchNearestCamForMapPt(const Mat_d& camDist, const MapPoint* p,
 		int iCam) {
 	int jCam = -1;
@@ -843,9 +976,9 @@ int CoSLAM::currentMapPointsRegister(double pixelErrVar, bool bMerge) {
 	}
 
 	//register dynamic points
-	for (int i = 0; i < m_groupNum; i++) {
-		nReg += curDynamicPointsRegInGroup(m_groups[i], pixelErrVar, bMerge);
-	}
+    //for (int i = 0; i < m_groupNum; i++) {
+    //	nReg += curDynamicPointsRegInGroup(m_groups[i], pixelErrVar, bMerge);
+    //}
 	//time measurement
 	m_tmCurMapRegister = tm.toc();
 	return nReg;
@@ -862,8 +995,8 @@ int CoSLAM::curStaticPointsRegInGroup(const CameraGroup& camGroup,
 	for (int i = 0; i < camGroup.num; i++) {
 		int iCam = camGroup.camIds[i];
 		MapPoint* pCurMapHead = curMapPts.getHead();
-		if (!pCurMapHead)
-			repErr("no map point is found");
+        //if (!pCurMapHead)
+        //	repErr("no map point is found");
 
 		std::vector<MapPoint*> vecMapPts;
 		for (MapPoint* p = pCurMapHead; p; p = p->next) {
@@ -1239,8 +1372,8 @@ void CoSLAM::getCurMapCenterViewFrom(int camId, double center[3]) {
 		}
 	}
 	//assert(nPts > 0);
-	if (nPts == 0)
-		pause();
+    //if (nPts == 0)
+    //	pause();
 
 	center[0] /= nPts;
 	center[1] /= nPts;
@@ -1271,9 +1404,9 @@ int CoSLAM::IsReadyForKeyFrame(int camId) {
 	getCurMapCenterViewFrom(camId, center);
 	if (IsMappedPtsDecreaseBelow(camId, m_mappedPtsReduceRatio))
 		return READY_FOR_KEY_FRAME_DECREASE;
-	if (slam[camId].getViewAngleChangeSelf(center) > m_minViewAngleChange)
+    if (slam[camId].getViewAngleChangeSelf(center) > m_minViewAngleChange)
 		return READY_FOR_KEY_FRAME_VIEWANGLE;
-	if (slam[camId].getCameraTranslationSelf() > m_minCamTranslation)
+    if (slam[camId].getCameraTranslationSelf() > m_minCamTranslation)
 		return READY_FOR_KEY_FRAME_TRANSLATION;
 	return 0;
 }
@@ -1287,7 +1420,7 @@ KeyFrame* CoSLAM::addKeyFrame(int readyForKeyFrame[SLAM_MAX_NUM]) {
 	pKeyFrame->setCamNum(numCams);
 	pKeyFrame->setMapPtsNum(curMapPts.getNum());
 	pKeyFrame->setCamGroups(m_groups, m_groupNum);
-	pKeyFrame->storeDynamicMapPoints(curMapPts);
+    //pKeyFrame->storeDynamicMapPoints(curMapPts);
 
 	return pKeyFrame;
 }
@@ -1308,17 +1441,21 @@ int CoSLAM::genNewMapPoints() {
 			decrease = true;
 	}
 	if (nReady > 0) {
+        //cout << "ready for new keyframe" << endl;
 		for (int i = 0; i < numCams; i++) {
             if( m_lastFrmInterMapping + 20 < curFrame)
                 continue;
-            
-			if ((readyForKeyFrame[i] > 1 && numCams > 1)
+           //cout << "more than 20 fames past self" << endl;
+            if (1||(readyForKeyFrame[i] > 1 && numCams > 1)
 					|| (readyForKeyFrame[i] > 0 && numCams == 1)) {
+              //             cout << "more than 1 cam ready" << endl;
 				if (m_groupId[i] == m_mergedgid
 						&& curFrame > m_lastFrmGroupMerge
 						&& curFrame < m_lastFrmGroupMerge + 130)
 					continue;
+            //cout << "more than 130 since group" << endl;
 				enterBACriticalSection();
+               // cout << "NEW MAP POINT" << endl;
 				vector<MapPoint*> newMapPts;
 				int iNum = slam[i].newMapPoints(newMapPts);
 				num += iNum;
@@ -1334,34 +1471,36 @@ int CoSLAM::genNewMapPoints() {
 		if (decrease) {
 			//for bundle adjsutment and group merging
 			//add a new key frame
+
+            //cout << "not enough static points" << endl;
 			KeyFrame* pKeyFrame = addKeyFrame(readyForKeyFrame);
 
 			//check if there are camera groups that can be merged
-			bool merged = false;
-			if (m_groupNum > 1)
-				merged = mergeCamGroups(pKeyFrame);
+            bool merged = false;
+            if (m_groupNum > 1)
+                merged = mergeCamGroups(pKeyFrame);
 
 			if (curFrame > m_lastFrmGroupMerge + 2) {
-				requestForBA(5, 2, 2, 30);
+                requestForBA(3, 1, 2, 30);
 			}
 
 			for (int i = 0; i < numCams; i++) {
 				if (readyForKeyFrame[i] == READY_FOR_KEY_FRAME_DECREASE
 						&& numCams > 1) {
 					enterBACriticalSection();
+                    //cout << "NEW MAP POINT from decrease" << endl;
 					vector<MapPoint*> newMapPts;
 					int iNum = slam[i].newMapPoints(newMapPts);
 					num += iNum;
 					m_lastFrmIntraMapping = curFrame;
 					for (size_t k = 0; k < newMapPts.size(); k++) {
-						curMapPts.add(newMapPts[k]);
+                        curMapPts.add(newMapPts[k]);
 					}
 					leaveBACriticalSection();
 				}
 			}
 		}
 	}
-
 	if (numCams == 1)
 		return num;
 
@@ -1369,7 +1508,7 @@ int CoSLAM::genNewMapPoints() {
 		num += genNewMapPointsInterCam(false);
 		m_lastFrmInterMapping = curFrame;
 	}
-	return num;
+    return num;
 }
 
 bool CoSLAM::mergeCamGroups(KeyFrame* newFrame) {
@@ -1809,7 +1948,9 @@ void CoSLAM::printCamGroup() {
 	for (int i = 0; i < m_groupNum; ++i) {
 		cout << "group " << i << ": ";
 		for (int j = 0; j < m_groups[i].num; ++j) {
+            try{
 			cout << m_groups[i].camIds[j] << " ";
+            }catch(...){}
 		}
 		cout << endl;
 	}

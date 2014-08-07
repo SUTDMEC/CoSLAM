@@ -71,7 +71,7 @@ CoSLAMThread::ExitCode CoSLAMThread::Entry() {
 	}
 
 	//notify the GUI thread to create GUIs
-	MyApp::broadcastCreateGUI();
+    MyApp::broadcastCreateGUI();
 
 	//wait for the accomplishment of creating GUIs
 	MyApp::waitCreateGUI();
@@ -98,26 +98,35 @@ CoSLAMThread::ExitCode CoSLAMThread::Entry() {
 
 			TimeMeasurer tmPerStep;
 			tmPerStep.tic();
+            //check the image quality heare
+            //write another image reader to check the image quality
+            //if the image quality is bad, skip the following
+            //coSLAM.tryGrabReadFrame();
 
-			coSLAM.grabReadFrame();
-			coSLAM.featureTracking();
-			coSLAM.poseUpdate();
-			coSLAM.cameraGrouping();
+            coSLAM.grabReadFrame();
+
+            coSLAM.featureTracking();
+            coSLAM.poseUpdate();
+
+            coSLAM.cameraGrouping();
             
+
+
 			//existing 3D to 2D points robust
-			coSLAM.activeMapPointsRegister(Const::PIXEL_ERR_VAR);
+            coSLAM.activeMapPointsRegister(Const::PIXEL_ERR_VAR);
 
 			TimeMeasurer tmNewMapPoints;
 			tmNewMapPoints.tic();
 
-			coSLAM.genNewMapPoints();
+            coSLAM.genNewMapPoints();
 			coSLAM.m_tmNewMapPoints = tmNewMapPoints.toc();
 
 			//point registration
-			coSLAM.currentMapPointsRegister(Const::PIXEL_ERR_VAR,
-					i % 50 == 0 ? true : false);
 
-			coSLAM.storeDynamicPoints();
+            coSLAM.currentMapPointsRegister(Const::PIXEL_ERR_VAR,
+                    i % 10 == 0 ? true : false);
+
+            //coSLAM.storeDynamicPoints();
 
 			updateDisplayData();
 			redrawAllViews();

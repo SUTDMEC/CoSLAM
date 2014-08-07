@@ -171,7 +171,7 @@ public:
 	/**
 	 * triangulate new map points
 	 */
-	int newMapPoints(std::vector<MapPoint*>& mapPts, double maxEpiErr = 2.0,
+    int newMapPoints(std::vector<MapPoint*>& mapPts, double maxEpiErr = 10.0,//2.0,
 			double maxNcc = 0.75);
 	/* refine the map point*/
 	void refineTriangulation(const FeaturePoint* fp, double M[3],

@@ -29,6 +29,8 @@ void leaveBACriticalSection();
 #define READY_FOR_KEY_FRAME_VIEWANGLE 2
 #define READY_FOR_KEY_FRAME_TRANSLATION 3
 
+extern bool allbad;
+
 class CoSLAM {
 public:
 	CoSLAM();
@@ -113,6 +115,7 @@ public:
 	void init();
 
 	void readFrame();
+    bool tryGrabReadFrame();
 	void grabReadFrame();
 
 	/*map initialization*/
@@ -164,6 +167,7 @@ public:
 	void releaseKeyPoseImgs(int frame);
 
 	void mapPointsClassify(double pixelVar);
+    void mapPointsClassifyNoDynamic(double pixelVar);
 	void mapStateUpdate();
 
 	/* functions for mapPointsRegister */

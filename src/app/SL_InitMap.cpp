@@ -25,9 +25,10 @@
 #include "SL_CoSLAMBA.h"
 #include "SL_GlobParam.h"
 
-#if CV_MINOR_VERSION > 3
+//#if CV_MINOR_VERSION > 3
 #include <opencv2/nonfree/features2d.hpp>
-#endif
+//#endif
+//#include <opencv2\features2d\features2d.hpp>
 
 //#define DEBUG_MODE
 InitMap::InitMap() :

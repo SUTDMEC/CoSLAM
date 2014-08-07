@@ -139,6 +139,8 @@ bool MergeCameraGroup::checkViewOverlapFromTo(int iCam, int jCam, int minInNum,
 		get2DConvexHull(ms, cxh);
 
 
+
+
 		ImgG mask(imgW[jCam], imgH[jCam]);
 		poly2Mask(cxh, mask);
 
@@ -146,13 +148,15 @@ bool MergeCameraGroup::checkViewOverlapFromTo(int iCam, int jCam, int minInNum,
 		int totalNum = 0;
 		kp = m_pCurKeyFrm->pPose[jCam];
 
+        cout << "test1" << endl;
 
 		for (FeaturePoint* fp = kp->pHead; fp && fp != kp->pTail->next;
 				fp = fp->next) {
 			//if (fp->mpt && !fp->mpt->isFalse() && !fp->mpt->isUncertain()) {
 			if (fp->mpt
-					&& (fp->mpt->isLocalStatic() || fp->mpt->isLocalDynamic())) {
-				mapPts.push_back(fp->mpt);
+                    //&& (fp->mpt->isLocalStatic() || fp->mpt->isLocalDynamic())) {
+                    && (fp->mpt->isLocalStatic())) {
+                mapPts.push_back(fp->mpt);
 				int x = (int) fp->x;
 				int y = (int) fp->y;
 				if (mask(y, x) > 0) {

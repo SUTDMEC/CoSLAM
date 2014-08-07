@@ -29,6 +29,8 @@ include( "${wxWidgets_USE_FILE}" )
 add_definitions(-DV3DLIB_ENABLE_GPGPU -DV3DLIB_GPGPU_ENABLE_CG)
 add_executable(${PROJECT_NAME} ${SRC_APP} ${SRC_GUI} ${SRC_SLAM} ${SRC_TRACKING} ${SRC_CGKLT})
 
+message(STATUS "opencv libs:" ${OpenCV_LIBS})
+
 target_link_libraries(${PROJECT_NAME}
  ${wxWidgets_LIBRARIES}
  ${GLEW_LIBRARY}
