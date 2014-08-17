@@ -123,7 +123,6 @@ Each video sequence is associated with a camera parameter file, which is in the 
 #### External Odometry Files (optional)
 Use odometry measurements from external sources to improve pose estimation before applying iterative error minimization methods to refine pose. Each line contains the change in pose between consecutive frames. If no file is defined or EOF is reached, this process is skipped. The translation scaling factor needs to be calibrated based on initial scene configuration since there is ambiguity between map size and movement speed.
 
-file:
         <translation scaling factor>        
         <3x3 Rotation matrix> <3x1 translation vector>
         ......
