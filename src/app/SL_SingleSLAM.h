@@ -48,12 +48,15 @@ public:
 	VideoReader* videoReader;
 	std::string videoFilePath;
 	std::string calFilePath;
+	std::string camOdometryPath;
 	int startFrameInVideo;
     int nInitFrm;
 
 	GPUKLT m_tracker; //feature point tracker;
 	Mat_d K, iK; //intrinsic matrix and its inverse
 	Mat_d k_c, k_ud; //distortion and its inverse
+	double odometryScale;
+	FILE *fp;
 
 	ImgRGB m_rgb; //color image
 	ImgG m_img; //original image
@@ -138,6 +141,12 @@ public:
 	 */
 	int poseUpdate3D2D();
 
+	/**
+	 *
+	 * update pose using odometry data to update pose before applying reprojection error minimization
+	 */
+	bool poseUpdateOdometry(double * cR, double * cT);
+
 	/*
 	 * detect unmapped dynamic points
 	 * minLen : minimum length of 2D track
@@ -171,7 +180,7 @@ public:
 	/**
 	 * triangulate new map points
 	 */
-    int newMapPoints(std::vector<MapPoint*>& mapPts, double maxEpiErr = 10.0,//2.0,
+    int newMapPoints(std::vector<MapPoint*>& mapPts, double maxEpiErr = 2.0,
 			double maxNcc = 0.75);
 	/* refine the map point*/
 	void refineTriangulation(const FeaturePoint* fp, double M[3],

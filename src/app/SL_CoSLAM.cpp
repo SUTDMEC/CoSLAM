@@ -61,11 +61,12 @@ CoSLAM::~CoSLAM() {
 	}
 }
 void CoSLAM::addInput(const char* videoFilePath, const char* calFilePath,
-		int startFrame,int initFrm) {
+			const char* camOdometryPath, int startFrame, int initFrm) {
 	slam[numCams].videoFilePath = videoFilePath;
 	slam[numCams].calFilePath = calFilePath;
+	slam[numCams].camOdometryPath = camOdometryPath;
 	slam[numCams].startFrameInVideo = startFrame;
-    slam[numCams].nInitFrm = initFrm;
+    	slam[numCams].nInitFrm = initFrm;
 	slam[numCams].camId = numCams;
 	numCams++;
 }
@@ -2112,7 +2113,7 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 
 	//save camera poses
 	for (int c = 0; c < numCams; c++) {
-		sprintf(filePath, "%s/%d_campose.txt", dirPath, c);
+		sprintf(filePath, "%s/%d_campose.csv", dirPath, c);
 		file.open(filePath);
 		if (!file)
 			repErr("cannot open file '%s' to write!\n", filePath);
@@ -2121,10 +2122,10 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 		file << nCam << endl;
 		for (CamPoseItem* cam = slam[c].m_camPos.first(); cam;
 				cam = cam->next) {
-			file << getFrameInVideo(c, cam->f) << endl;
+			file << getFrameInVideo(c, cam->f) << ',';// << endl;
 			for (size_t i = 0; i < 9; i++)
-				file << cam->R[i] << " ";
-			file << cam->t[0] << " " << cam->t[1] << " " << cam->t[2] << endl;
+				file << cam->R[i] << ",";
+			file << cam->t[0] << "," << cam->t[1] << "," << cam->t[2] << endl;
 		}
 		file.close();
 		cout << filePath << " has been saved!" << endl;

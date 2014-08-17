@@ -1,6 +1,7 @@
 CoSLAM
 ======
-This is a fork of the original CoSLAM in various attempts to increase robustness and error handling.
+This is a fork of the original CoSLAM in various attempts to increase robustness, error handling, as well as the additial feature of utilizing external odometry measurements to improve pose estimation.
+
 
 CoSLAM is a visual SLAM software that aims to use multiple freely moving cameras to simultaneously compute their egomotion and the 3D map of the surrounding scenes in a highly dynamic environment.
 For more details, please refer to [CoSLAM project page](http://www.ece.nus.edu.sg/stfpage/eletp/Projects/SLAM/).
@@ -102,6 +103,9 @@ The input is a txt file that lists the input video files and corresponding camer
     /xx/xxx/cal1.txt #absolute path of calibration files
     /xx/xxx/cal2.txt
     /xx/xxx/cal3.txt
+    /xx/xxx/odo1.txt #absolute path of external odometry files (optional)
+    /xx/xxx/odo2.txt
+    /xx/xxx/odo3.txt
 
 #### Video sequences
 The video sequences should be temporally synchronized. Those sequences are suggested to be in 'MPEG-4' format, though other formats may also be supported. The number of video sequences are not restricted in our system. It is however suggested that the number of input sequences be less than five, as the speed of CoSLAM system decreases significantly with the number of sequences. 
@@ -115,7 +119,25 @@ Each video sequence is associated with a camera parameter file, which is in the 
     0 0 1 
     #five parameters for distortion
     k0 k1 k2 k3 k4
-    
+
+#### External Odometry Files (optional)
+Use odometry measurements from external sources to improve pose estimation before applying iterative error minimization methods to refine pose. Each line contains the change in pose between consecutive frames. If no file is defined or EOF is reached, this process is skipped. The translation scaling factor needs to be calibrated based on initial scene configuration since there is ambiguity between map size and movement speed.)
+
+        <translation scaling factor>        
+        <3x3 Rotation matrix> <3x1 translation vector>
+        ......
+
+    	eg:
+	K
+	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
+	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
+	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
+	...
+
+	Where R = [R1 R2 R3 ; R4 R5 R6; R7 R8 R9] in matlab syntax, representing the the rotation from one frame to the next based on external odometry readings.
+	
+	dx, dy, dz is the change position of pose in global coordinates from one frame to the next.
+
 Run
 -----------
 Go to the directory of the input file, then type
@@ -158,11 +180,10 @@ camera poses, feature points and input video paths. Here is an example of the ou
         <random id #2>
         ......
 
-* x_campose.txt
+* x_campose.csv
 
-        <number of frames>
-        <frame number>
-        <3x3 Rotation matrix> <3x1 translation vector>
+        <number of frames>        
+        <frame number><3x3 Rotation matrix> <3x1 translation vector>
         ......
 
 * x_featpts.txt

@@ -27,6 +27,7 @@ public:
 	
 	static vector<string> videoFilePath;
 	static vector<string> camFilePath;
+	static vector<string> camOdometryPath;
     static vector<int> nSkipFrms;
     static vector<int> nInitFrms;
 	

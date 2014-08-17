@@ -110,7 +110,7 @@ public:
 	double m_tmActMapRegister;
 public:
 	void addInput(const char* videoFilePath, const char* calFilePath,
-			int startFrame, int initFrm);
+			const char* camOdometryPath, int startFrame, int initFrm);
 	
 	void init();
 

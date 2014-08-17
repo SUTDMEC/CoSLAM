@@ -597,18 +597,22 @@ int SingleSLAM::fastPoseUpdate3D() {
 #include <sys/stat.h>
 #include <sys/types.h>
 int SingleSLAM::poseUpdate3D(bool largeErr) {
+
+        double* cR = m_camPos.current()->R;
+        double* cT = m_camPos.current()->t;
+
+	poseUpdateOdometry(cR,cT);
+
 	propagateFeatureStates();
 //get the feature points corresponding to the map points
 	std::vector<Track2DNode*> nodes;
 	int num = getStaticMappedTrackNodes(nodes);
-	if (num < 1) {
-        double* cR = m_camPos.current()->R;
-        double* cT = m_camPos.current()->t;
-        CamPoseItem* camPos = m_camPos.add(currentFrame(), camId,cR, cT);
-        updateCamParamForFeatPts(K, camPos);
 
+	if (num < 5) {
+        	CamPoseItem* camPos = m_camPos.add(currentFrame(), camId,cR, cT);
+        	updateCamParamForFeatPts(K, camPos);
 		warn(
-				"[camera id:%d]intra-camera pose update failed! less than five static map points (%d)",
+		"[camera id:%d]intra-camera pose update failed! less than five static map points (%d)",
 				camId, num);
         //leaveBACriticalSection();
         //CoSLAM::ptr->pause();
@@ -644,8 +648,6 @@ int SingleSLAM::poseUpdate3D(bool largeErr) {
 	}
 
 	Mat_d R(3, 3), t(3, 1);
-	double* cR = m_camPos.current()->R;
-	double* cT = m_camPos.current()->t;
 
 	IntraCamPoseOption opt;
 
@@ -915,8 +917,8 @@ int SingleSLAM::newMapPoints(std::vector<MapPoint*>& mapPts, double maxEpiErr,
 				cur_fp->cam->R, cur_fp->cam->t, M, cov, Const::PIXEL_ERR_VAR);
 		getCameraCenter(cur_fp->cam->R, cur_fp->cam->t, org);
 		double s = fabs(cov[0] + cov[4] + cov[8]);
-        //if (dist3(org, M) < sqrt(s))
-        //	continue;
+        if (dist3(org, M) < sqrt(s))
+        	continue;
 
 		//check the reprojection error
 		double err1 = reprojErrorSingle(K.data, pre_fp->cam->R, pre_fp->cam->t,
@@ -1178,4 +1180,70 @@ void SingleSLAM::saveFeatureTracks(const char* filePath, int minLen,
 		fprintf(fp, "\n");
 	}
 	fclose(fp);
+}
+
+//////WEN'S MODS
+
+#define MAXSTRLEN  2048 /* 2K */
+
+#define SKIP_LINE(f){                                                       \
+	char buf[MAXSTRLEN];                                                        \
+	while(!feof(f))                                                           \
+	if(!fgets(buf, MAXSTRLEN-1, f) || buf[strlen(buf)-1]=='\n') break;      \
+}
+
+bool SingleSLAM::poseUpdateOdometry(double * cR, double * cT) {
+	//static FILE *fp = NULL;
+	int ch = EOF;
+	double temp[9],dR[9],dt[3];
+
+	try{
+
+	if(!fp){
+		if ((fp = fopen(camOdometryPath.c_str(), "r+")) == NULL) 
+			return false;	
+
+		while (!feof(fp) && (ch = fgetc(fp)) == '#') /* skip comments */
+			SKIP_LINE(fp);
+
+		ungetc(ch, fp);
+
+		fscanf(fp, "%lf", &odometryScale);
+
+	}
+
+	if (feof(fp)){
+		fclose(fp);
+		return false;
+	}
+
+	for (int i = 0; i < 9; i++) {
+		fscanf(fp, "%lf,", dR+i);
+		temp[i] = 0;
+	}
+
+	for (int i = 0; i < 2; i++) {
+		fscanf(fp, "%lf,", dt+i);
+		cT[i] += dt[i]*odometryScale;
+	}
+
+	fscanf(fp, "%lf", dt+2);
+		cT[2] += dt[2]*odometryScale;
+
+	for(int row = 0; row < 3; row++)
+		for(int col = 0; col < 3; col++)
+			for(int i = 0; i < 3; i++)
+				temp[3*row + col] += dR[3*row + i]*cR[3*i + col];
+	
+	for(int i = 0; i < 9; i++){
+		cR[i] = temp[i];
+	}
+
+
+	}
+	catch(...){
+		return false;
+	}
+
+	return true;
 }
