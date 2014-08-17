@@ -1210,6 +1210,10 @@ bool SingleSLAM::poseUpdateOdometry(double * cR, double * cT) {
 
 		fscanf(fp, "%lf", &odometryScale);
 
+		while (!feof(fp) && (ch = fgetc(fp)) == ','); /* skip commas */
+		
+		ungetc(ch, fp);
+
 	}
 
 	if (feof(fp)){

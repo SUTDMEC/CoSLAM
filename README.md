@@ -104,7 +104,7 @@ The input is a txt file that lists the input video files and corresponding camer
     /xx/xxx/cal2.txt
     /xx/xxx/cal3.txt
     /xx/xxx/odo1.txt #absolute path of external odometry files (optional)
-    /xx/xxx/odo2.txt
+    /xx/xxx/odo2.txt (or csv)
     /xx/xxx/odo3.txt
 
 #### Video sequences
@@ -121,8 +121,9 @@ Each video sequence is associated with a camera parameter file, which is in the 
     k0 k1 k2 k3 k4
 
 #### External Odometry Files (optional)
-Use odometry measurements from external sources to improve pose estimation before applying iterative error minimization methods to refine pose. Each line contains the change in pose between consecutive frames. If no file is defined or EOF is reached, this process is skipped. The translation scaling factor needs to be calibrated based on initial scene configuration since there is ambiguity between map size and movement speed.)
+Use odometry measurements from external sources to improve pose estimation before applying iterative error minimization methods to refine pose. Each line contains the change in pose between consecutive frames. If no file is defined or EOF is reached, this process is skipped. The translation scaling factor needs to be calibrated based on initial scene configuration since there is ambiguity between map size and movement speed.
 
+file:
         <translation scaling factor>        
         <3x3 Rotation matrix> <3x1 translation vector>
         ......
@@ -134,9 +135,8 @@ Use odometry measurements from external sources to improve pose estimation befor
 	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
 	...
 
-	Where R = [R1 R2 R3 ; R4 R5 R6; R7 R8 R9] in matlab syntax, representing the the rotation from one frame to the next based on external odometry readings.
-	
-	dx, dy, dz is the change position of pose in global coordinates from one frame to the next.
+	Where R = [R1 R2 R3 ; R4 R5 R6; R7 R8 R9] in matlab syntax representing the the camera rotation from one frame to the next.
+	dx, dy, dz is the change position of pose in GLOBAL coordinates from one frame to the next.
 
 Run
 -----------
