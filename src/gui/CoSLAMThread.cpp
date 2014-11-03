@@ -22,7 +22,10 @@
 
 DEFINE_EVENT_TYPE(EventUpdateViews);
 
+int CoSLAMThread::partNum = 0;
+
 CoSLAMThread::CoSLAMThread() {
+
 }
 CoSLAMThread::~CoSLAMThread() {
 }
@@ -53,6 +56,11 @@ CoSLAMThread::ExitCode CoSLAMThread::Entry() {
 
 	V3D_GPU::Cg_ProgramBase::initializeCg();
 
+	//set the default scaling factor for the points
+	//if no scaling can be determined by the determineScale function, then
+	//don't scale the points
+	double scale = 1.0;
+
 	//////////////////////////2.read video information//////////////////
 	try {
 		for(int c = 0; c < coSLAM.numCams; c++){
@@ -71,7 +79,7 @@ CoSLAMThread::ExitCode CoSLAMThread::Entry() {
 	}
 
 	//notify the GUI thread to create GUIs
-    MyApp::broadcastCreateGUI();
+	MyApp::broadcastCreateGUI();
 
 	//wait for the accomplishment of creating GUIs
 	MyApp::waitCreateGUI();
@@ -82,6 +90,7 @@ CoSLAMThread::ExitCode CoSLAMThread::Entry() {
 	MyApp::modelWnd1->setSLAMData(&coSLAM);
 	MyApp::modelWnd2->setSLAMData(&coSLAM);
 
+
 	/* start the SLAM process*/
 	try {
 		coSLAM.readFrame();
@@ -91,56 +100,74 @@ CoSLAMThread::ExitCode CoSLAMThread::Entry() {
 		tic();
 		coSLAM.initMap();
 		toc();
+	}catch(...)
+	  {
+	    logInfo("\nError starting SLAM\n");
+	  }
+	int i = 1;
 
-        for( int i = 1; i < Param::nTotalFrame; i++){
+	try{
+
+
+	  for(int k = 0; i < Param::nTotalFrame; i++){
 			while (MyApp::bStop) {/*stop*/
 			}
-
+	  
 			TimeMeasurer tmPerStep;
 			tmPerStep.tic();
-            //check the image quality heare
-            //write another image reader to check the image quality
-            //if the image quality is bad, skip the following
-            //coSLAM.tryGrabReadFrame();
 
-            coSLAM.grabReadFrame();
-
-            coSLAM.featureTracking();
-            coSLAM.poseUpdate();
-
-            coSLAM.cameraGrouping();
+			coSLAM.grabReadFrame();
+			coSLAM.featureTracking();
+			coSLAM.poseUpdate();
+			coSLAM.cameraGrouping();
             
-
-
 			//existing 3D to 2D points robust
-            coSLAM.activeMapPointsRegister(Const::PIXEL_ERR_VAR);
+			coSLAM.activeMapPointsRegister(Const::PIXEL_ERR_VAR);
 
 			TimeMeasurer tmNewMapPoints;
 			tmNewMapPoints.tic();
 
-            coSLAM.genNewMapPoints();
+			coSLAM.genNewMapPoints();
 			coSLAM.m_tmNewMapPoints = tmNewMapPoints.toc();
 
 			//point registration
+			coSLAM.currentMapPointsRegister(Const::PIXEL_ERR_VAR,
+					i % 50 == 0 ? true : false);
 
-            coSLAM.currentMapPointsRegister(Const::PIXEL_ERR_VAR,
-                    i % 10 == 0 ? true : false);
-
-            //coSLAM.storeDynamicPoints();
+			coSLAM.storeDynamicPoints();
 
 			updateDisplayData();
 			redrawAllViews();
 
 			coSLAM.m_tmPerStep = tmPerStep.toc();
-			Sleep(50);					
-            
+			Sleep(50);
+
             cout << "f:" << coSLAM.curFrame << "/" << Param::nTotalFrame << endl;
 		}
+
+
+
 		cout << " the result is saved at " << MyApp::timeStr << endl;
-		coSLAM.exportResults(MyApp::timeStr);
+
+		//SCALE THE OUTPUT FILES SO THEY ARE WITH SAME SCALE AS THE TRAVELLING OF THE 
+		//ODOMETRY FILES - SENSE THE BLOCKS OF MOVEMENT (ADD UP THE ODO FILES TO THE END OF THE
+		//MOVEMENT WITH SMALL DISPLACEMENTS), AND COMPARE AGAINST THE LPF OF THE CAMPOSE 
+		//only need to compare against one of the cameras, as both are related. Use the 1st camera (0)
+		scale = coSLAM.determineScale(0, 0.001);
+
+		coSLAM.exportResults(MyApp::timeStr, scale, -1); //Do default exporting of scan with explicit scale
 		logInfo("slam finished\n");
+
+
+
+
 	} catch (SL_Exception& e) {
-		logInfo(e.what());
+
+	  //IF THERE ARE REGISTERED POINTS, THEN SAVE POINTS BEFORE RESARTING
+	  coSLAM.exportResults(MyApp::timeStr, scale, CoSLAMThread::partNum++);
+
+	  logInfo("\nSL_Exception:\n");
+	  logInfo(e.what());
 	} catch (std::exception& e) {
 #ifdef WIN32
 		wxMessageBox(e.what());

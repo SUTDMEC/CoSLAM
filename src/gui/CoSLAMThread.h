@@ -20,7 +20,10 @@ public:
 	~CoSLAMThread();
 protected:
 	virtual ExitCode Entry();
+private:
+static int partNum;
 };
+
 
 void updateDisplayData();
 void redrawAllViews();

@@ -185,15 +185,17 @@ void MyApp::parseInput(){
                 else if( k < 3*numView){
                     Param::camFilePath.push_back(tokens[0]);
                 }
-		else if( k < 4*numView){
-                    Param::camOdometryPath.push_back(tokens[0]);
+		else if( k < 4*numView)
+		{
+		  Param::odoFilePath.push_back(tokens[0]);
 		}
                 k++;
             }
         }
-        
-	while(Param::camOdometryPath.size() < numView)
-		Param::camOdometryPath.push_back("");
+
+	//if no odo files, enter empty strings as filler
+	while( Param::odoFilePath.size() < numView)
+	  Param::odoFilePath.push_back("");
 
         if( Param::videoFilePath.size() != numView || Param::videoFilePath.size() != numView)
             repErr("Error in parsing the input file!");
@@ -219,17 +221,21 @@ bool MyApp::OnInit() {
 
     cout << "nViews:" << Param::videoFilePath.size() << endl;
 	for (size_t i = 0; i < Param::videoFilePath.size(); ++i) {
+
 		coSLAM.addInput(Param::videoFilePath[i].c_str(),
-                        Param::camFilePath[i].c_str(), Param::camOdometryPath[i].c_str(), 
-				Param::nSkipFrms[i],Param::nInitFrms[i]);
+				Param::camFilePath[i].c_str(), 
+				Param::odoFilePath[i].c_str(), 
+				Param::nSkipFrms[i],
+				Param::nInitFrms[i]);
         
         cout << "Skipped frames:" << Param::nSkipFrms[i] << endl;
         cout << "Init frames:" << Param::nInitFrms[i] << endl;
         cout << "Video input:" << Param::videoFilePath[i] << endl;
         cout << "Camera parameters:" << Param::camFilePath[i] << endl;
+	cout << "Odometry files:" << Param::odoFilePath[i] << endl;
 	}
   
-
+ INIT:
 	preWaitCreateGUI();
 
 	//create main thread

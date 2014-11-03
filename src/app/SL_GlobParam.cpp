@@ -21,7 +21,7 @@ int Param::nMaxMapPts = 800;
 
 vector<string> Param::videoFilePath;
 vector<string> Param::camFilePath;
-vector<string> Param::camOdometryPath;
+vector<string> Param::odoFilePath;
 vector<int> Param::nSkipFrms;
 vector<int> Param::nInitFrms;
 

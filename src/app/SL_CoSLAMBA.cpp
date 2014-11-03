@@ -356,21 +356,20 @@ void BundleRTS::run(int nPtsCon, int nCamsCon, int maxIter) {
 	memcpy(pParamPoints, Ms.data, numPts * 3 * sizeof(double));
 
 	double sbaInfo[SBA_INFOSZ];
-    try{
-	if (sba_motstr_levmar_x(numPts, numPtsCon, numCams, numCamsCon, vmask,
+	try
+	{
+	  if (sba_motstr_levmar_x(numPts, numPtsCon, numCams, numCamsCon, vmask,
 			m_paramVec, cnp, pnp, ms.data, 0, mnp, img_projsKRTS_x,
 			img_projsKRTS_jac_x, (void *) (&m_globs), maxIter, 0, opts,
-			sbaInfo) == SBA_ERROR) {
+			sbaInfo) == SBA_ERROR)
 		//for debug
 		//save the bundle data for debug
-		
-		
-        //repErr("bundle adjustment failed!\n");
-    }
-
-}catch(...){
-    std::cerr << "sba_motstr_levmar_x/ bundle adjustment failed!" << std::endl;
-}
+		repErr("bundle adjustment failed at CoSLAMBA::run()\n");
+	    }catch(...){
+	    repErr("bundle adjustment exception at CoSLAMBA::run()\n");
+	  }
+	//repErr("bundle adjustment failed!\n");
+	
 	//test
 	logInfo(
 			"initial error:%lf, final error:%lf #iterations:%lf stop reason:%lf\n",

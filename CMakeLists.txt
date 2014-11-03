@@ -4,6 +4,10 @@ cmake_minimum_required(VERSION 2.8)
 #search extern libraries
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
+#set G++ and c++11
+set(CMAKE_CXX_COMPILER "g++")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11") 
+
 find_package(VisualSLAM REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)

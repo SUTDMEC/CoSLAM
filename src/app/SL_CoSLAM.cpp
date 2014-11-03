@@ -24,6 +24,7 @@
 #include <cassert>
 #include <set>
 #include <cstdio>
+#include <sstream>
 
 void enterBACriticalSection() {
 	pthread_mutex_lock(&MyApp::s_mutexBA);
@@ -60,13 +61,13 @@ CoSLAM::~CoSLAM() {
 		delete pBA;
 	}
 }
-void CoSLAM::addInput(const char* videoFilePath, const char* calFilePath,
-			const char* camOdometryPath, int startFrame, int initFrm) {
+void CoSLAM::addInput(const char* videoFilePath, const char* calFilePath, const char* odoFilePath,
+		int startFrame,int initFrm) {
 	slam[numCams].videoFilePath = videoFilePath;
 	slam[numCams].calFilePath = calFilePath;
-	slam[numCams].camOdometryPath = camOdometryPath;
 	slam[numCams].startFrameInVideo = startFrame;
-    	slam[numCams].nInitFrm = initFrm;
+	slam[numCams].odoFilePath = odoFilePath;
+	slam[numCams].nInitFrm = initFrm;
 	slam[numCams].camId = numCams;
 	numCams++;
 }
@@ -117,11 +118,6 @@ void* _parallelReadNextFrame(void* param) {
 	CoSLAM::ptr->slam[camId].grabReadFrame();
 	return 0;
 }
-
-bool CoSLAM::tryGrabReadFrame(){
-    //TODO
-}
-
 void CoSLAM::grabReadFrame() {
 	TimeMeasurer tm;
 	tm.tic();
@@ -222,6 +218,26 @@ void CoSLAM::initMapSingleCam() {
 	keyFrame->setKeyPose(0, slam[0].addKeyPose(true));
 
 	m_nKeyFrame++;
+}
+
+//To be called when the SLAM fails and is needed to restart
+void CoSLAM::clearDataPoints()
+{
+  for(int i = 0; i < numCams; i++)
+    {
+      //slam[i].m_keyPose.clear();
+      slam[i].m_featPts.clear();
+      //slam[i].m_camPos.clear();
+    }
+}
+
+//After calling the clearDataPoints() function, reinit the containers so they are not null
+void CoSLAM::initDataPoints()
+{
+  for(int i = 0; i < numCams; i++)
+    {
+      slam[i].m_keyPose;
+    }
 }
 
 void CoSLAM::initMapMultiCam() {
@@ -369,14 +385,11 @@ bool CoSLAM::interCamPoseUpdate() {
 
 	return true;
 }
-
-bool allbad = true;    //if no static points on all cameras
 void CoSLAM::poseUpdate() {
 	TimeMeasurer tm;
 	tm.tic();
 	enterBACriticalSection();
 
-    allbad = true;  //assume there are no good camera, find out in pose update
 	if (curFrame >= m_lastFrmGroupMerge && curFrame < m_lastFrmGroupMerge + 60)
 		parallelPoseUpdate(true);
 	else
@@ -386,23 +399,17 @@ void CoSLAM::poseUpdate() {
 	m_tmPoseUpdate = tm.toc();
 
 	tm.tic();
-    //std::cout << "mapStateUpdate" << std::endl;
 	enterBACriticalSection();
 	mapStateUpdate();
 	leaveBACriticalSection();
 
-//    if(!allbad){
-    //std::cout << "mapPointsClassify" << std::endl;
-    //comment this out for static scenes
-    enterBACriticalSection();
-    //std::cout << "enter BA senction:" << std::endl;
-    //mapPointsClassify(12.0);
-    mapPointsClassifyNoDynamic(12.0);
-    //std::cout << "leave BA senction:" << std::endl;
-    leaveBACriticalSection();
-//    }
+	enterBACriticalSection();
+	
+	logInfo("CLASSIFYING POINTS\n");
+
+	mapPointsClassify(12.0);
+	leaveBACriticalSection();
 	m_tmMapClassify = tm.toc();
-    //std::cout << "pose update finished!" << std::endl;
 }
 
 void* _parallelPoseUpdate(void* param) {
@@ -415,16 +422,14 @@ void* _parallelPoseUpdate(void* param) {
 }
 void CoSLAM::parallelPoseUpdate(bool largeErr) {
 	if (numCams == 1) {
-        if( -1 != slam[0].poseUpdate3D(largeErr))
-            allbad = false;
-        //slam[0].detectDynamicFeaturePoints(20, 5, 3, Const::MAX_EPI_ERR);
+		slam[0].poseUpdate3D(largeErr);
+		slam[0].detectDynamicFeaturePoints(20, 5, 3, Const::MAX_EPI_ERR);
 		return;
 	}
 	for (int i = 0; i < numCams; i++) {
-        if(-1 != slam[i].poseUpdate3D(largeErr))
-            allbad = false;
-//		slam[i].detectDynamicFeaturePoints(20, 5, 3,
-//				largeErr ? Const::MAX_EPI_ERR * 5 : Const::MAX_EPI_ERR);
+		slam[i].poseUpdate3D(largeErr);
+		slam[i].detectDynamicFeaturePoints(20, 5, 3,
+				largeErr ? Const::MAX_EPI_ERR * 5 : Const::MAX_EPI_ERR);
 	}
 
 #ifdef USE_OPENMP
@@ -532,6 +537,7 @@ void CoSLAM::mapPointsClassify(double pixelVar) {
 		}
 	}
 }
+
 
 
 void CoSLAM::mapPointsClassifyNoDynamic(double pixelVar) {
@@ -977,9 +983,9 @@ int CoSLAM::currentMapPointsRegister(double pixelErrVar, bool bMerge) {
 	}
 
 	//register dynamic points
-    //for (int i = 0; i < m_groupNum; i++) {
-    //	nReg += curDynamicPointsRegInGroup(m_groups[i], pixelErrVar, bMerge);
-    //}
+	for (int i = 0; i < m_groupNum; i++) {
+		nReg += curDynamicPointsRegInGroup(m_groups[i], pixelErrVar, bMerge);
+	}
 	//time measurement
 	m_tmCurMapRegister = tm.toc();
 	return nReg;
@@ -996,8 +1002,8 @@ int CoSLAM::curStaticPointsRegInGroup(const CameraGroup& camGroup,
 	for (int i = 0; i < camGroup.num; i++) {
 		int iCam = camGroup.camIds[i];
 		MapPoint* pCurMapHead = curMapPts.getHead();
-        //if (!pCurMapHead)
-        //	repErr("no map point is found");
+		if (!pCurMapHead)
+			repErr("no map point is found");
 
 		std::vector<MapPoint*> vecMapPts;
 		for (MapPoint* p = pCurMapHead; p; p = p->next) {
@@ -1373,8 +1379,8 @@ void CoSLAM::getCurMapCenterViewFrom(int camId, double center[3]) {
 		}
 	}
 	//assert(nPts > 0);
-    //if (nPts == 0)
-    //	pause();
+	if (nPts == 0)
+		pause();
 
 	center[0] /= nPts;
 	center[1] /= nPts;
@@ -1405,9 +1411,9 @@ int CoSLAM::IsReadyForKeyFrame(int camId) {
 	getCurMapCenterViewFrom(camId, center);
 	if (IsMappedPtsDecreaseBelow(camId, m_mappedPtsReduceRatio))
 		return READY_FOR_KEY_FRAME_DECREASE;
-    if (slam[camId].getViewAngleChangeSelf(center) > m_minViewAngleChange)
+	if (slam[camId].getViewAngleChangeSelf(center) > m_minViewAngleChange)
 		return READY_FOR_KEY_FRAME_VIEWANGLE;
-    if (slam[camId].getCameraTranslationSelf() > m_minCamTranslation)
+	if (slam[camId].getCameraTranslationSelf() > m_minCamTranslation)
 		return READY_FOR_KEY_FRAME_TRANSLATION;
 	return 0;
 }
@@ -1421,7 +1427,8 @@ KeyFrame* CoSLAM::addKeyFrame(int readyForKeyFrame[SLAM_MAX_NUM]) {
 	pKeyFrame->setCamNum(numCams);
 	pKeyFrame->setMapPtsNum(curMapPts.getNum());
 	pKeyFrame->setCamGroups(m_groups, m_groupNum);
-    //pKeyFrame->storeDynamicMapPoints(curMapPts);
+	
+	pKeyFrame->storeDynamicMapPoints(curMapPts);
 
 	return pKeyFrame;
 }
@@ -1442,21 +1449,17 @@ int CoSLAM::genNewMapPoints() {
 			decrease = true;
 	}
 	if (nReady > 0) {
-        //cout << "ready for new keyframe" << endl;
 		for (int i = 0; i < numCams; i++) {
             if( m_lastFrmInterMapping + 20 < curFrame)
                 continue;
-           //cout << "more than 20 fames past self" << endl;
-            if (1||(readyForKeyFrame[i] > 1 && numCams > 1)
+            //EDIT FOR TRUE (ALWAYS PERFORMED)
+			if ((readyForKeyFrame[i] > 1 && numCams > 1)
 					|| (readyForKeyFrame[i] > 0 && numCams == 1)) {
-              //             cout << "more than 1 cam ready" << endl;
 				if (m_groupId[i] == m_mergedgid
 						&& curFrame > m_lastFrmGroupMerge
 						&& curFrame < m_lastFrmGroupMerge + 130)
 					continue;
-            //cout << "more than 130 since group" << endl;
 				enterBACriticalSection();
-               // cout << "NEW MAP POINT" << endl;
 				vector<MapPoint*> newMapPts;
 				int iNum = slam[i].newMapPoints(newMapPts);
 				num += iNum;
@@ -1472,36 +1475,34 @@ int CoSLAM::genNewMapPoints() {
 		if (decrease) {
 			//for bundle adjsutment and group merging
 			//add a new key frame
-
-            //cout << "not enough static points" << endl;
 			KeyFrame* pKeyFrame = addKeyFrame(readyForKeyFrame);
 
 			//check if there are camera groups that can be merged
-            bool merged = false;
-            if (m_groupNum > 1)
-                merged = mergeCamGroups(pKeyFrame);
+			bool merged = false;
+			if (m_groupNum > 1)
+				merged = mergeCamGroups(pKeyFrame);
 
 			if (curFrame > m_lastFrmGroupMerge + 2) {
-                requestForBA(3, 1, 2, 30);
+				requestForBA(5, 2, 2, 30);
 			}
 
 			for (int i = 0; i < numCams; i++) {
 				if (readyForKeyFrame[i] == READY_FOR_KEY_FRAME_DECREASE
 						&& numCams > 1) {
 					enterBACriticalSection();
-                    //cout << "NEW MAP POINT from decrease" << endl;
 					vector<MapPoint*> newMapPts;
 					int iNum = slam[i].newMapPoints(newMapPts);
 					num += iNum;
 					m_lastFrmIntraMapping = curFrame;
 					for (size_t k = 0; k < newMapPts.size(); k++) {
-                        curMapPts.add(newMapPts[k]);
+						curMapPts.add(newMapPts[k]);
 					}
 					leaveBACriticalSection();
 				}
 			}
 		}
 	}
+
 	if (numCams == 1)
 		return num;
 
@@ -1509,7 +1510,7 @@ int CoSLAM::genNewMapPoints() {
 		num += genNewMapPointsInterCam(false);
 		m_lastFrmInterMapping = curFrame;
 	}
-    return num;
+	return num;
 }
 
 bool CoSLAM::mergeCamGroups(KeyFrame* newFrame) {
@@ -1949,9 +1950,7 @@ void CoSLAM::printCamGroup() {
 	for (int i = 0; i < m_groupNum; ++i) {
 		cout << "group " << i << ": ";
 		for (int j = 0; j < m_groups[i].num; ++j) {
-            try{
 			cout << m_groups[i].camIds[j] << " ";
-            }catch(...){}
 		}
 		cout << endl;
 	}
@@ -2053,7 +2052,7 @@ void CoSLAM::storeDynamicPoints() {
 }
 
 #include <time.h>
-void CoSLAM::exportResultsVer1(const char timeStr[]) const {
+void CoSLAM::exportResultsVer1(const char timeStr[], double scale) const {
 	using namespace std;
     char resPath[256];
 	char dirPath[256];
@@ -2070,6 +2069,10 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 	//and camera parameters
 	sprintf(filePath, "%s/input_videos.txt", dirPath);
 	ofstream file(filePath);
+
+	sprintf(filePath, "%s/pointsAndPath.xyz", dirPath);
+	ofstream pointsAndPath(filePath);
+
 	if (!file)
 		repErr("cannot open file %s to write!\n", filePath);
 	for (int c = 0; c < numCams; c++) {
@@ -2086,7 +2089,7 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 	cout << filePath << " has been saved!" << endl;
 
 	//save map points
-	sprintf(filePath, "%s/mappts.txt", dirPath);
+	sprintf(filePath, "%s/mappts.xyz", dirPath);
 
 	file.open(filePath);
 	if (!file)
@@ -2096,36 +2099,44 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 	vector<MapPoint*> mapPoints;
 	getAllStaticMapPoints(mapPoints);
 
-	file << mapPoints.size() << endl;
+	//file << mapPoints.size() << endl;
 	for (size_t i = 0; i < mapPoints.size(); i++) {
 		//test
 		mptSet.insert(mapPoints[i]);
 
-		file << mapPoints[i]->id << endl;
-		file << mapPoints[i]->x << " " << mapPoints[i]->y << " "
-				<< mapPoints[i]->z << endl;
-		for (size_t i = 0; i < 9; i++)
-			file << mapPoints[i]->cov[i] << " ";
-		file << endl;
+		//file << mapPoints[i]->id << endl;
+		file << mapPoints[i]->x / scale << " " << mapPoints[i]->y / scale << " "
+				<< mapPoints[i]->z / scale << endl;
+
+		//save the points in the total output file
+		pointsAndPath << mapPoints[i]->x / scale << " " << mapPoints[i]->y / scale << " "
+			      << mapPoints[i]->z / scale <<  endl;
+
+		//for (size_t i = 0; i < 9; i++)
+		//	file << mapPoints[i]->cov[i] << " ";
+		//file << endl;
 	}
 	file.close();
 	cout << filePath << " has been saved!" << endl;
 
 	//save camera poses
 	for (int c = 0; c < numCams; c++) {
-		sprintf(filePath, "%s/%d_campose.csv", dirPath, c);
+		sprintf(filePath, "%s/%d_campose.xyz", dirPath, c);
 		file.open(filePath);
 		if (!file)
 			repErr("cannot open file '%s' to write!\n", filePath);
 
 		size_t nCam = slam[c].m_camPos.size();
-		file << nCam << endl;
+		//file << nCam << endl;
 		for (CamPoseItem* cam = slam[c].m_camPos.first(); cam;
 				cam = cam->next) {
-			file << getFrameInVideo(c, cam->f) << ',';// << endl;
-			for (size_t i = 0; i < 9; i++)
-				file << cam->R[i] << ",";
-			file << cam->t[0] << "," << cam->t[1] << "," << cam->t[2] << endl;
+		  //file << getFrameInVideo(c, cam->f) << endl;
+		  //	for (size_t i = 0; i < 9; i++)
+		  //		file << cam->R[i] << " ";
+			file << cam->t[0] / scale << " " << cam->t[1] / scale << " " << cam->t[2] / scale << endl;
+			//save the path in the file with different colour
+			pointsAndPath << cam->t[0] / scale << " " << cam->t[1] / scale << " "
+				      << cam->t[2] / scale << endl;
 		}
 		file.close();
 		cout << filePath << " has been saved!" << endl;
@@ -2142,7 +2153,7 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 		for (int f = 0; f <= curFrame; f++)
 			if (f >= slam[c].m_camPos.first()->f)
 				nf++;
-		file << nf << endl;
+		//file << nf << endl;
 
 		for (int f = 0; f <= curFrame; f++) {
 			if (f < slam[c].m_camPos.first()->f)
@@ -2159,18 +2170,334 @@ void CoSLAM::exportResultsVer1(const char timeStr[]) const {
 			}
 			file << getFrameInVideo(c, f) << " " << staticPts.size() << endl;
 			for (size_t i = 0; i < staticPts.size(); i++) {
-				file << staticPts[i]->mpt->id << " " << staticPts[i]->x << " "
-						<< staticPts[i]->y << " ";
+				file << " " << staticPts[i]->x / scale << " "
+				     << staticPts[i]->y / scale;//<< " " << staticPts[i]->z;
 			}
 			file << endl;
 		}
 		file.close();
+		pointsAndPath.close();
 		cout << filePath << " has been saved!" << endl;
 	}
 }
-void CoSLAM::exportResults(const char timeStr[]) const {
-	exportResultsVer1(timeStr);
+
+//Partnumber is in order to break up the parts based on the 
+void CoSLAM::exportResults(const char timeStr[], double scale,  int partNumber) const {
+  if(partNumber < 0) //regular output for the end of the system run
+    exportResultsVer1(timeStr, scale);
+  else
+    savePointCloud(timeStr, scale, partNumber);//save the part of the map currently obtained
 }
+
+void CoSLAM::savePointCloud(const char timeStr[], double scale, int partNumber) const
+{
+  set<MapPoint*> mptSet;
+	vector<MapPoint*> mapPoints;
+	getAllStaticMapPoints(mapPoints);
+  if (mapPoints.size() < 5) //If not enough points to warrant a new file, return early
+    return;
+
+	using namespace std;
+    char resPath[256];
+	char dirPath[256];
+
+    sprintf(resPath, "%s/slam_results", getenv("HOME"));
+	sprintf(dirPath, "%s/%s", resPath, timeStr);
+    
+    mkdir(resPath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+	mkdir(dirPath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
+	char filePathA[256];
+	char filePathB[256];
+
+	//save map points
+	std::ostringstream a;
+	a << std::string(dirPath) << "/part" << (partNumber) << ".xyz";
+	std::string tempAString = a.str();
+	//save map and path points
+	std::ostringstream b;
+	b << std::string(dirPath) << "/pathAndPart" << (partNumber) << ".xyz";
+	std::string tempBString = b.str();
+	//a.append(partNumber);
+	//a.append(".xyz");
+
+	sprintf(filePathA, tempAString.c_str());
+	sprintf(filePathB, tempBString.c_str());
+
+	ofstream file(filePathA);
+	ofstream fileB(filePathB);
+	if (!file || !fileB)
+		repErr("cannot open file to write!\n");
+
+  //save feature points in scene
+	for (size_t i = 0; i < mapPoints.size(); i++) {
+		//test
+		mptSet.insert(mapPoints[i]);
+
+		//file << mapPoints[i]->id << endl;
+		file << mapPoints[i]->x / scale << " " <<
+		  mapPoints[i]->y / scale << " " <<
+		  mapPoints[i]->z / scale << endl;
+
+		fileB << mapPoints[i]->x / scale << " " <<
+		  mapPoints[i]->y / scale << " " <<
+		  mapPoints[i]->z / scale << endl;
+		//for (size_t i = 0; i < 9; i++)
+		//	file << mapPoints[i]->cov[i] << " ";
+		//file << endl;
+	}
+	
+	for(int c = 0; c < numCams; c++)
+	{
+	  for (CamPoseItem* cam = slam[c].m_camPos.first(); cam; cam = cam->next) 
+	    {
+	      fileB << cam->t[0] / scale << " " << cam->t[1] / scale << " "
+		    << cam->t[2] / scale << endl;
+	    }
+	}
+
+	file.close();
+	fileB.close();
+	//a = "Part ";
+	//a.append(partNumber);
+	//a.append(" has been saved");
+	logInfo(tempAString.c_str());
+}
+
+// can output as .OFF to get colour in format X Y Z R G B (where rgb is from 0.0 to 1.0)
+// ofstream CoSLAM::PLYOutput(const char timeStr[], int numPoints, double scale) const 
+// {
+//     using namespace std;
+//     char resPath[256];
+//     char dirPath[256];
+
+//     sprintf(resPath, "%s/slam_results", getenv("HOME"));
+// 	sprintf(dirPath, "%s/%s", resPath, timeStr);
+    
+//     mkdir(resPath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+// 	mkdir(dirPath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
+// 	char filePath[256];
+
+// 	//save the information of the input video sequences 
+// 	//and camera parameters
+// 	sprintf(filePath, "%s/combinedOutput.ply", dirPath);
+// 	ofstream file(filePath);
+// 	if (!file)
+// 		repErr("cannot open file %s to write!\n", filePath);
+
+// 	for (int c = 0; c < numCams; c++) 
+// 	{
+// 		file << slam[c].videoFilePath << endl;
+// 		for (size_t i = 0; i < 9; i++)
+// 			file << slam[c].K[i] << " ";
+// 		file << endl;
+// 		for (size_t i = 0; i < 5; i++)
+// 			file << slam[c].k_c.data[i] << " ";
+// 		file << endl;
+// 		file << slam[c].W << " " << slam[c].H << endl;
+// 	}
+// 	return file;
+// }
+
+
+/*USED TO DETERMINE THE SCALING FACTOR FOR THE SCANNED POINTS based on the read odometry files*/
+double CoSLAM::determineScale(int camera, double thresholdValue)
+{
+  //STEP 1: detemine the length at which the first movement occurs on the input odometry file
+  //set a threshold which counts as the zero movement readings (generally less than 10e-5)
+  //scan through the entire file to find the stopping points - ignore the timing
+
+  ifstream file(slam[camera].odoFilePath.c_str(), ios::in);
+  std::string readLine;
+
+  //the bounding commas on the value in the file
+  int lastComma;
+  int secondLast;
+  int thirdLast;
+
+  //the value of the timestep
+  double odoValueX;
+  double odoValueY;
+
+  //the vector of displacement - will need to be set in case of turning
+  double displacement[3] = {0};
+  
+  //only interested in the actual movement, not the rotation as of now
+  //double[9] rotationMatrix = {0};
+
+  //logic to see where it starts and stops
+  bool moving = false;
+
+  bool read = std::getline(file, readLine);
+
+  while(read && ((moving && (odoValueX > thresholdValue || odoValueY > thresholdValue)) || !moving))
+  {
+    //now contains timesatmp, 9-elements of rotation matrix, and 3 elements of the translation vector 
+    //translations are all in world space, as differentials. All from .CSV file, so comma separated
+    lastComma = readLine.find_last_of(",");
+    secondLast = readLine.find_last_of(",", lastComma - 1) + 1;
+    thirdLast = readLine.find_last_of(",", secondLast - 1) + 1;
+    //part of the substringing process, want the stuff before the last comma (-1) and then don't want to include the previous comma in the substring (+1)
+
+    std::string tempX = readLine.substr(secondLast, lastComma - secondLast);
+    std::string tempY = readLine.substr(secondLast, lastComma - secondLast);
+    //logInfo(temp.c_str());
+    //cut out the odoValue
+    odoValueX = strtod(tempX.c_str(), NULL);
+    odoValueY = strtod(tempY.c_str(), NULL);
+    //READ ROTATION MATRIX HERE - not needed now because the dx dy is in world space. Needs to be added if relative
+    //rotationMatrix = reading more of the line and substring-ing a lot
+    //odoValue * rotationMatrix //rotate the odoValue to fit into the total displacement
+    
+    //this counts as movement, and needs to be included
+    //stops once moving is true (started movement) and odoValue is less than threshold
+    //   ADD THIS INTO THE MAIN LOOP LOGIC
+    if(odoValueX > thresholdValue || odoValueY > thresholdValue)
+    {
+      moving = true;
+      //add the values into the accumulated odoValue - for now only treat it as if it was in one direction
+      displacement[0] += odoValueX;
+      displacement[1] += odoValueY;
+    }    
+    //now we have the total odometry reading of displacement of the robot slam.[camera]
+ read = std::getline(file, readLine);
+  }
+
+  //if no movement detected by the end of the file, exit
+  if(displacement[0] < 0.005 && displacement[1] < 0.005)
+    throw SL_Exception();
+
+
+
+  //now need to determine the offset from the SLAM information
+  //get the SLAM movement information
+
+  CamPoseItem* cameraPose =  slam[camera].m_camPos.first();
+  std::vector<std::array<double, 3>> positions;
+  std::array<double, 3> tempVector;
+  double offset[3];
+
+  offset[0] = cameraPose->t[0];
+  offset[1] = cameraPose->t[1];
+  offset[2] = cameraPose->t[2];
+
+  //camPos.over_head.t contains the translation information from CoSLAM 
+  //but as absolute from origin values, so subtract the previous position
+  //to get the relative positioning
+  for(int i = 0; cameraPose != NULL; cameraPose = cameraPose->next)
+  {
+    //parse through the list and add translation into vector for easier access
+    tempVector[0] = cameraPose->t[0] - offset[0];
+    tempVector[1] = cameraPose->t[1] - offset[1];
+    tempVector[2] = cameraPose->t[2] - offset[2];
+    
+    positions.push_back(tempVector);
+
+    offset[0] = cameraPose->t[0];
+    offset[1] = cameraPose->t[1];
+    offset[2] = cameraPose->t[2];
+  }
+
+  //filter the results - LPF with a 25 element kernel
+  std::vector<std::array<double, 3>> filteredPositions;
+  std::array<double, 3> average = {0};
+  double averageMovement = 0;
+
+  //
+  double kernelSize = 25.0;
+  double kernel[25][3] = {0};
+
+  //loop through and replace the oldest value with the new data
+  //I think the stuff in m_camPos is relative position data
+  for(int i = 0; i < positions.size(); i++)
+  {
+    //replace the oldest element in the array 
+    //stored in the i%kernelSize element of the array, int value for %
+    kernel[i % ((int)kernelSize)][0] = positions[i][0];
+    kernel[i % ((int)kernelSize)][1] = positions[i][1];
+    kernel[i % ((int)kernelSize)][2] = positions[i][2];
+
+    //now get average over the course of the kernel
+    for(int j = 0; j < kernelSize; j++)
+    {
+      average[0] += kernel[j][0];
+      average[1] += kernel[j][1];
+      average[2] += kernel[j][2];
+    }
+    //add average into the filetered array
+    average[0] = average[0] / kernelSize;
+    average[1] = average[1] / kernelSize;
+    average[2] = average[2] / kernelSize;
+    filteredPositions.push_back(average);
+    //get the average displacement for each step
+    averageMovement += sqrt(average[0] * average[0] +
+			    average[1] * average[1] +
+			    average[2] * average[2]);
+    average[0] = 0.0;
+    average[1] = 0.0;
+    average[2] = 0.0;
+  }
+  //getting the average movement size 
+  averageMovement /= (positions.size() / 2);
+
+  //now the filteredPositions contains fully filtered differential positioning
+  //do similar movement detection as with CSV file, but use the average/2 as the 
+  //threshold
+  short movingSLAM = 0;
+  double SLAMDisplacement[3] = {0};
+  double stepSize = 0.0;
+
+  //need to have at least 10 moving frames for it to count
+  for(int i =0; i < filteredPositions.size() && (movingSLAM < 10 || stepSize > averageMovement) ; i++)
+  {
+    //cycle through the elements and identify the pieces which are moving
+    stepSize = sqrt(filteredPositions[i][0] * filteredPositions[i][0] + 
+		    filteredPositions[i][1] * filteredPositions[i][1] + 
+		    filteredPositions[i][2] * filteredPositions[i][2]);
+
+    //find the pieces which are moving
+    if(stepSize > averageMovement)
+    {
+      movingSLAM++;
+      SLAMDisplacement[0] += filteredPositions[i][0];
+      SLAMDisplacement[1] += filteredPositions[i][1];
+      SLAMDisplacement[2] += filteredPositions[i][2];
+    }
+    else if(movingSLAM < 10)  //if not moving, reset the counter
+      movingSLAM = 0;
+    else  //decrease the counter. need 10 still frames to count as stop
+      movingSLAM--;
+    
+  }
+
+  //if no movement detected by the end of the file, exit
+  if(abs(SLAMDisplacement[0]) < averageMovement || abs(SLAMDisplacement[1]) < averageMovement || abs(SLAMDisplacement[2]) < averageMovement)
+    throw SL_Exception();
+  
+  //total sizes of the first movement are stored in SLAMDisplacement and displacement
+  //need abs size difference between readings -> need magnitudes
+  double odoReading = sqrt(displacement[0] * displacement[0] +
+			   displacement[1] * displacement[1] +
+			   displacement[2] * displacement[2]);
+
+  double SLAMReading = sqrt(SLAMDisplacement[0] * SLAMDisplacement[0] +
+			    SLAMDisplacement[1] * SLAMDisplacement[1] +
+			    SLAMDisplacement[2] * SLAMDisplacement[2]);
+
+  //these readings now have the absolute sizes of the first movements from both
+  //scaling will determine the coefficient which the points need to be multiplied by
+  
+  //deal with edge case where the scaling calculation failed -> no scaling
+  if(odoReading < 0.005 || SLAMReading < 0.005)
+    return 1.0;
+
+  logInfo("\nSCALING FACTOR: %d \n", SLAMReading / odoReading);
+
+  //scaling factor: used by taking CoSLAM.measurements / value
+  return SLAMReading / odoReading;
+}
+
 void CoSLAM::saveCurrentImages(const char* dirPath) const {
 #ifdef WIN32
 	mkdir(dirPath);

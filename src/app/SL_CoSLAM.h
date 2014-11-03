@@ -20,6 +20,9 @@
 #include "SL_CoSLAMRobustBA.h"
 #include <deque>
 #include <map>
+#include <string>
+#include <array>
+#include <math.h>
 using namespace std;
 
 void enterBACriticalSection();
@@ -28,8 +31,6 @@ void leaveBACriticalSection();
 #define READY_FOR_KEY_FRAME_DECREASE 1
 #define READY_FOR_KEY_FRAME_VIEWANGLE 2
 #define READY_FOR_KEY_FRAME_TRANSLATION 3
-
-extern bool allbad;
 
 class CoSLAM {
 public:
@@ -109,19 +110,24 @@ public:
 	double m_tmCurMapRegister;
 	double m_tmActMapRegister;
 public:
-	void addInput(const char* videoFilePath, const char* calFilePath,
-			const char* camOdometryPath, int startFrame, int initFrm);
+	void addInput(	const char* videoFilePath, const char* calFilePath, const char* odoFilePath,
+			int startFrame, int initFrm);
 	
 	void init();
 
 	void readFrame();
-    bool tryGrabReadFrame();
 	void grabReadFrame();
+	bool tryGrabReadFrame();
 
 	/*map initialization*/
 	void initMap();
 	void initMapSingleCam();
 	void initMapMultiCam();
+
+	/*Clear the data from the storage*/
+	void clearDataPoints();
+	/*re-init the containers so that they can be used for the next frames after calling clearDataPoints()*/
+	void initDataPoints();
 
 	/*feature tracking*/
 	void featureTracking();
@@ -167,7 +173,7 @@ public:
 	void releaseKeyPoseImgs(int frame);
 
 	void mapPointsClassify(double pixelVar);
-    void mapPointsClassifyNoDynamic(double pixelVar);
+	void mapPointsClassifyNoDynamic(double pixelVar);
 	void mapStateUpdate();
 
 	/* functions for mapPointsRegister */
@@ -229,9 +235,14 @@ public:
 	void printCamGroup();
 	void pause();
 	//for debug
-	void exportResultsVer1(const char timeStr[]) const;
-	void exportResults(const char timeStr[]) const;
+	void exportResultsVer1(const char timeStr[], double scale) const;
+	void exportResults(const char timeStr[], double scale, int partNumber) const;
+	void savePointCloud(const char timeStr[], double scale, int partNumber) const;
 	void saveCurrentImages(const char* dirPath) const;
+
+
+	//determine the scale of the map
+	double determineScale(int camera, double threshold);
 };
 
 #endif /* COSLAM_H_ */
