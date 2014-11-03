@@ -1,2 +1,0 @@
-/home/robot/CoSLAMUpdate/OFFICIAL/CoSLAMWen/CoSLAM/CoSLAM-Build/CMakeFiles/CoSLAM.dir
-/home/robot/CoSLAMUpdate/OFFICIAL/CoSLAMWen/CoSLAM/CoSLAM-Build/CMakeFiles/uninstall.dir
