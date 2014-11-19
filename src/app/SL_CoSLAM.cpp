@@ -2133,9 +2133,9 @@ void CoSLAM::exportResultsVer1(const char timeStr[], double scale) const {
 		  //file << getFrameInVideo(c, cam->f) << endl;
 		  //	for (size_t i = 0; i < 9; i++)
 		  //		file << cam->R[i] << " ";
-			file << cam->t[0] / scale << " " << cam->t[1] / scale << " " << cam->t[2] / scale << endl;
-			//save the path in the file with different colour
-			pointsAndPath << cam->t[0] / scale << " " << cam->t[1] / scale << " "
+			file << cam->t[0] / scale << " " << cam->t[1] / scale << " " << -cam->t[2] / scale << endl;
+			//negative X
+			pointsAndPath << -cam->t[0] / scale << " " << cam->t[1] / scale << " "
 				      << cam->t[2] / scale << endl;
 		}
 		file.close();
@@ -2250,8 +2250,9 @@ void CoSLAM::savePointCloud(const char timeStr[], double scale, int partNumber) 
 	for(int c = 0; c < numCams; c++)
 	{
 	  for (CamPoseItem* cam = slam[c].m_camPos.first(); cam; cam = cam->next) 
-	    {
-	      fileB << cam->t[0] / scale << " " << cam->t[1] / scale << " "
+	    {	      
+	      //-X component
+	      fileB << -cam->t[0] / scale << " " << cam->t[1] / scale << " "
 		    << cam->t[2] / scale << endl;
 	    }
 	}
@@ -2302,6 +2303,7 @@ void CoSLAM::savePointCloud(const char timeStr[], double scale, int partNumber) 
 
 
 /*USED TO DETERMINE THE SCALING FACTOR FOR THE SCANNED POINTS based on the read odometry files*/
+//0.005 is a good threshold to use
 double CoSLAM::determineScale(int camera, double thresholdValue)
 {
   //STEP 1: detemine the length at which the first movement occurs on the input odometry file
@@ -2319,6 +2321,7 @@ double CoSLAM::determineScale(int camera, double thresholdValue)
   //the value of the timestep
   double odoValueX;
   double odoValueY;
+  double odoValueZ;
 
   //the vector of displacement - will need to be set in case of turning
   double displacement[3] = {0};
@@ -2328,44 +2331,52 @@ double CoSLAM::determineScale(int camera, double thresholdValue)
 
   //logic to see where it starts and stops
   bool moving = false;
+  double stepDistance = 0.0;
 
   bool read = std::getline(file, readLine);
 
-  while(read && ((moving && (odoValueX > thresholdValue || odoValueY > thresholdValue)) || !moving))
+  while(read && ((moving && (stepDistance > thresholdValue)) || !moving))
   {
+    stepDistance = 0.0;
     //now contains timesatmp, 9-elements of rotation matrix, and 3 elements of the translation vector 
     //translations are all in world space, as differentials. All from .CSV file, so comma separated
     lastComma = readLine.find_last_of(",");
-    secondLast = readLine.find_last_of(",", lastComma - 1) + 1;
-    thirdLast = readLine.find_last_of(",", secondLast - 1) + 1;
+    secondLast = readLine.find_last_of(",", lastComma - 1);
+    thirdLast = readLine.find_last_of(",", secondLast - 1);
     //part of the substringing process, want the stuff before the last comma (-1) and then don't want to include the previous comma in the substring (+1)
 
-    std::string tempX = readLine.substr(secondLast, lastComma - secondLast);
-    std::string tempY = readLine.substr(secondLast, lastComma - secondLast);
+    std::string tempX = readLine.substr(thirdLast + 1, secondLast - thirdLast - 1);
+    std::string tempY = readLine.substr(secondLast + 1, lastComma - secondLast - 1);
+    std::string tempZ = readLine.substr(lastComma + 1, string::npos);
     //logInfo(temp.c_str());
     //cut out the odoValue
     odoValueX = strtod(tempX.c_str(), NULL);
     odoValueY = strtod(tempY.c_str(), NULL);
+    odoValueZ = strtod(tempZ.c_str(), NULL);
+
     //READ ROTATION MATRIX HERE - not needed now because the dx dy is in world space. Needs to be added if relative
     //rotationMatrix = reading more of the line and substring-ing a lot
     //odoValue * rotationMatrix //rotate the odoValue to fit into the total displacement
+
+    //get the distance travelled by this step
+    stepDistance = sqrt(odoValueX*odoValueX + odoValueY*odoValueY + odoValueZ*odoValueZ);
     
     //this counts as movement, and needs to be included
     //stops once moving is true (started movement) and odoValue is less than threshold
-    //   ADD THIS INTO THE MAIN LOOP LOGIC
-    if(odoValueX > thresholdValue || odoValueY > thresholdValue)
+    if(stepDistance > thresholdValue)
     {
       moving = true;
       //add the values into the accumulated odoValue - for now only treat it as if it was in one direction
       displacement[0] += odoValueX;
       displacement[1] += odoValueY;
+      displacement[2] += odoValueZ;
     }    
     //now we have the total odometry reading of displacement of the robot slam.[camera]
- read = std::getline(file, readLine);
+    read = std::getline(file, readLine);
   }
 
   //if no movement detected by the end of the file, exit
-  if(displacement[0] < 0.005 && displacement[1] < 0.005)
+  if(displacement[0] < 0.005 && displacement[1] < 0.005 && displacement[2] < 0.005)
     throw SL_Exception();
 
 
@@ -2471,7 +2482,7 @@ double CoSLAM::determineScale(int camera, double thresholdValue)
     
   }
 
-  //if no movement detected by the end of the file, exit
+  //if no movement detected by the end of the SLAM, exit
   if(abs(SLAMDisplacement[0]) < averageMovement || abs(SLAMDisplacement[1]) < averageMovement || abs(SLAMDisplacement[2]) < averageMovement)
     throw SL_Exception();
   

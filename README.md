@@ -1,6 +1,6 @@
 CoSLAM
 ======
-This is a fork of the original CoSLAM in various attempts to increase robustness, error handling, as well as the additial feature of utilizing external odometry measurements to improve pose estimation.
+This is a fork of the original CoSLAM in various attempts to increase robustness, error handling, as well as the additial feature of utilizing external odometry measurements to provide a metric map of the environment.
 
 
 CoSLAM is a visual SLAM software that aims to use multiple freely moving cameras to simultaneously compute their egomotion and the 3D map of the surrounding scenes in a highly dynamic environment.
@@ -93,8 +93,8 @@ Input
 -----------
 The input is a txt file that lists the input video files and corresponding camera parameter files. Here is a example.
 
-    3 #number of sequences
-    0 0 #number of frame to skip and a reserve number of single camera visual SLAM
+    3 #number of cameras
+    0 0 #number of frames to skip and a reserve number of single camera visual SLAM
     0 0
     0 0
     /xx/xxx/video1.avi #absolute path of video files
@@ -103,9 +103,9 @@ The input is a txt file that lists the input video files and corresponding camer
     /xx/xxx/cal1.txt #absolute path of calibration files
     /xx/xxx/cal2.txt
     /xx/xxx/cal3.txt
-    /xx/xxx/odo1.txt #absolute path of external odometry files (optional)
-    /xx/xxx/odo2.txt (or csv)
-    /xx/xxx/odo3.txt
+    /xx/xxx/odo1.csv #absolute path of external odometry files
+    /xx/xxx/odo2.csv 
+    /xx/xxx/odo3.csv
 
 #### Video sequences
 The video sequences should be temporally synchronized. Those sequences are suggested to be in 'MPEG-4' format, though other formats may also be supported. The number of video sequences are not restricted in our system. It is however suggested that the number of input sequences be less than five, as the speed of CoSLAM system decreases significantly with the number of sequences. 
@@ -120,18 +120,16 @@ Each video sequence is associated with a camera parameter file, which is in the 
     #five parameters for distortion
     k0 k1 k2 k3 k4
 
-#### External Odometry Files (optional)
-Use odometry measurements from external sources to improve pose estimation before applying iterative error minimization methods to refine pose. Each line contains the change in pose between consecutive frames. If no file is defined or EOF is reached, this process is skipped. The translation scaling factor needs to be calibrated based on initial scene configuration since there is ambiguity between map size and movement speed.
+#### External Odometry Files (Required)
+Use odometry measurements from external sources to be able to provide a metric map from the determined CoSLAM mapping. The process requires the matching of induvidual motions between the CoSLAM path and the odometry files, and so requires that the total scan be broken into clearly different induvidual motions. An initial calibration movement surrounded with clear pauses will be sufficient to provide proper scale. The odometry file is of the format:
 
-        <translation scaling factor>        
-        <3x3 Rotation matrix> <3x1 translation vector>
+        <Time from prev step (seconds)><3x3 Rotation matrix> <3x1 translation vector>
         ......
 
     	eg:
-	K
-	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
-	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
-	R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
+	dt,R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
+	dt,R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
+	dt,R1,R2,R3,R4,R5,R6,R7,R8,R9,dx,dy,dz
 	...
 
 	Where R = [R1 R2 R3 ; R4 R5 R6; R7 R8 R9] in matlab syntax representing the the camera rotation from one frame to the next.
@@ -141,23 +139,24 @@ Run
 -----------
 Go to the directory of the input file, then type
 
-    CoSLAM ./input.txt
+    CoSLAM input.txt
 
 to run the system.
 
 Outputs
 -----------
 The outputs are saved in a directory named by a time string under '~/slam_results'. The outputs include 3D map points,
-camera poses, feature points and input video paths. Here is an example of the outputs of three cameras:
+camera poses, feature points and input video paths. Here is an example of the outputs of three cameras on a successful CoSLAM run:
 
     ~/slam_results/13-09-10=21-32/input_videos.txt      #paths of input video sequences
-    ~/slam_results/13-09-10=21-32/mappts.txt            #3D map points
-    ~/slam_results/13-09-10=21-32/0_campose.txt         #camera poses
-    ~/slam_results/13-09-10=21-32/1_campose.txt
-    ~/slam_results/13-09-10=21-32/2_campose.txt
+    ~/slam_results/13-09-10=21-32/mappts.xyz            #3D map points
+    ~/slam_results/13-09-10=21-32/0_campose.xyz         #camera poses
+    ~/slam_results/13-09-10=21-32/1_campose.xyz
+    ~/slam_results/13-09-10=21-32/2_campose.xyz
     ~/slam_results/13-09-10=21-32/0_featpts.txt         #feature points
     ~/slam_results/13-09-10=21-32/1_featpts.txt
     ~/slam_results/13-09-10=21-32/2_featpts.txt
+    ~/slam_results/13-09-10=21-32/pointsAndPath.xyz	#all of the map points and camera paths
 
 
 * input_video.txt
@@ -170,19 +169,16 @@ camera poses, feature points and input video paths. Here is an example of the ou
         <absolute path of video #2>
         ......
 
-* mappts.txt
+* mappts.xyz
+The stored map points which were mapped by the system
         
-        <number of map points>
-        <random id #1>
         <x y z>
-        <3x3 covariance>    
-        <random id #2>
         ......
 
-* x_campose.csv
+* x_campose.xyz
+The position of the camera X for each frame.
 
-        <number of frames>        
-        <frame number><3x3 Rotation matrix> <3x1 translation vector>
+        <x y z>
         ......
 
 * x_featpts.txt
@@ -192,6 +188,19 @@ camera poses, feature points and input video paths. Here is an example of the ou
         <random id> <x y> <random id> <x y>, ....., 
         <frame number> <number of feature points>
         ......
+
+* pointsAndPath.xyz
+All of the points mapped by the system and the paths of the cameras in a single file
+
+	<x y z>
+
+
+On an unsuccessful run of CoSLAM, the system cannot create a metric map of the environment but instead saves all of the points mapped up to that point in time. The files created in this instance consist of:
+
+     ~/slam_results/13-09-10=21-32/partX.xyz		#XYZ file of the mapped points
+     ~/slam_results/13-09-10=21-32/pathAndPartX.xyz	#XYZ of the mapped points and the path
+
+
 
 Contribute to CoSLAM
 -----------
